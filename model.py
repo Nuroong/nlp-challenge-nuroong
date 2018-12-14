@@ -1,16 +1,14 @@
 # -*- coding: utf-8 -*-
 
 import tensorflow as tf
-from keras.layers import merge
-from keras.layers.recurrent import LSTM
-from keras.layers.core import *
-from keras.models import *
 
 class Model:
     def __init__(self, parameter):
         self.parameter = parameter
 
     def build_model(self):
+        self._build_placeholder()
+
         # { "morph": 0, "morph_tag": 1, "tag" : 2, "character": 3, .. }
         self._embedding_matrix = []
         for item in self.parameter["embedding"]:
@@ -32,15 +30,13 @@ class Model:
         for i in range(0, len(self._embeddings)-1):
             all_data_emb = tf.concat([all_data_emb, self._embeddings[i]], axis=2)
         all_data_emb = tf.concat([all_data_emb, character_emb_rnn], axis=2)
-		
+
         # 모든 데이터를 가져와서 Bi-RNN 실시
-		#sentence_output, W, B = self._build_birnn_model(attention_mul, self.sequence, self.parameter["lstm_units"], self.dropout_rate, scope="all_data_layer")
         sentence_output, W, B = self._build_birnn_model(all_data_emb, self.sequence, self.parameter["lstm_units"], self.dropout_rate, scope="all_data_layer")
+        sentence_output = tf.matmul(sentence_output, W) + B
 		
 		############################임베딩 이어붙인 후 BI LSTM 까지는 그대로 가고
 		############################FC 하기 전에 ATTENTION
-		attention_mul = _attention_3d_block(sentence_output)
-		
 		# inputs.shape = (batch_size, time_steps, input_dim)
 		#input_dim = int(inputs.shape[2])
 		a = tf.transpose(sentence_output, perm=[2, 1])
@@ -54,14 +50,14 @@ class Model:
 
 		attention_mul = tf.layers.flatten(output_attention_mul)
 		
-        sentence_output = tf.matmul(attention_mul, W) + B
-
+        sentence_output_att = tf.matmul(attention_mul, W) + B
+		
         # 마지막으로 CRF 를 실시 한다
-        crf_cost, crf_weight, crf_bias = self._build_crf_layer(sentence_output)
+        crf_cost, crf_weight, crf_bias = self._build_crf_layer(sentence_output_att)
 
         self.train_op = self._build_output_layer(crf_cost)
         self.cost = crf_cost
-		
+
     def _build_placeholder(self):
         self.morph = tf.placeholder(tf.int32, [None, None])
         self.ne_dict = tf.placeholder(tf.float32, [None, None, int(self.parameter["n_class"] / 2)])
@@ -142,8 +138,7 @@ if __name__ == "__main__":
                     "character" : [ 10, 10 ],
                     }, "lstm_units" : 32, "keep_prob" : 0.65,
                     "sequence_length": 300, "n_class" : 100, "batch_size": 128,
-                    "learning_rate" : 0.002,
-					"SINGLE_ATTENTION_VECTOR" : TRUE
+                    "learning_rate" : 0.002
                 }
     model = Model(parameter)
     model.build_model()
